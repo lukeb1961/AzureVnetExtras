@@ -267,9 +267,7 @@ Function Get-AzureVnetVirtualNetworkSite
 
     if ($VnetName) 
     {
-        $Vnetsites | Where-Object -FilterScript {
-            $_.Name -eq $VnetName 
-        }
+        $Vnetsites | Where-Object -FilterScript { $_.Name -eq $VnetName }
     }
     else 
     {
@@ -289,6 +287,8 @@ Function New-AzureVnetVirtualNetworkSite
                                           [string] $DNSname,
                             [System.Net.IPAddress] $DNSipAddress = '8.8.8.8'
     )
+
+    # need to validate VnetCIDR if IPaddress is provided
 
     $VnetSite = Get-AzureVnetVirtualNetworkSite -VnetName $VnetName 
     if ($VnetSite) 
@@ -453,6 +453,8 @@ function New-AzureVnetLocalNetworkSite
                                              [int] $VnetCIDR,
                             [System.Net.IPAddress] $VPNGatewayAddress
     )
+
+    # need to validate VnetCIDR if IPaddress is provided
 
     $LocalNetworkSite = Get-AzureVnetLocalNetworkSite -LocalNetworkSiteName $LocalNetworkSiteName 
     if ($LocalNetworkSite) 
@@ -628,8 +630,59 @@ function Remove-AzureVnetLocalNetworkSite
 }
 
 
-function Remove-AzureVnetDNSserver
+Function Remove-AzureVnetDNSserver
 {
+    [CmdletBinding()]
+    Param ([Parameter(Mandatory = $true)] [string] $DNSserverName
+    )
+
+    $VNetConfigObject = Get-AzureVNetConfig
+
+    if ($VNetConfigObject) 
+    {
+        [XML]$vnetConfig = $VNetConfigObject.XMLConfiguration 
+
+        $nsmgr = New-Object -TypeName System.Xml.XmlNamespaceManager -ArgumentList ($vnetConfig.NameTable)
+        $nsmgr.AddNamespace('myns', $vnetConfig.NetworkConfiguration.xmlns)
+
+        $xpath = '//myns:DnsServers'
+        $dnsServers = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+
+        $DnsServer=$dnsServers.DnsServer | Where-Object -FilterScript { $_.Name -eq $DNSserverName }
+        if ($DnsServer -ne $null)
+        {
+           # check if it is referenced anywhere
+           $xpath = '//myns:VirtualNetworkSites'
+           $VirtualNetSites = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+
+           foreach ($Vnet in $VirtualNetSites.VirtualNetworkSite) {
+             $referenced=$Vnet.dnsserversref.dnsserverref | Where-Object {$_.name -eq $DNSserverName}
+             if ($referenced -ne $null) {
+                break
+             }
+           }
+
+           if (-NOT ($referenced) )
+           {
+             [void]$dnsServers.RemoveChild($DnsServer)
+
+             $xmlTempPath = [System.IO.Path]::GetTempPath()
+             $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
+             $vnetConfig.Save($SaveFilePath)
+
+             $null = Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
+           }
+           else
+           {
+             Write-Error "DNS server '$DNSserverName' is referenced by virtual network '$($Vnet.name)' and cannot be removed"
+           }
+        }
+        else
+        {
+          Write-Error -Message "The DnsServer $DNSserverName was not found."
+        }
+    }
+
     #RemoveChild
 }
 
