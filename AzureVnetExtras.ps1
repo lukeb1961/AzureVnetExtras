@@ -36,7 +36,8 @@ Set-StrictMode -Version 4
 #### Remove-AzureVnetLocalNetworkSite
 ####
 #### Get-AzureVnetDNSserver   
-#### Set-AzureVnetDNSserver  
+#### Set-AzureVnetDNSserver 
+#### New-AzureVnetDNSserver 
 #### Remove-AzureVnetDNSserver 
 
 
@@ -407,13 +408,28 @@ Function New-AzureVnetVirtualNetworkSite
 
 
 
-            New-AzureVnetConfig  -VnetName $params
+            New-AzureVnetConfig  -VnetName @params
         }
     }
 }
 
 function Set-AzureVnetVirtualNetworkSite
 {
+}
+
+function Remove-AzureVnetVirtualNetworkSite
+{
+    [CmdletBinding()]
+    Param ([Parameter(Mandatory = $true)] [string] $VnetName)
+
+    if (Get-AzureVnetVirtualNetworkSite  -VnetName $VnetName) 
+    {
+        # remove it
+    }
+    else 
+    {
+        Write-Error -Message "The VirtualNetworkSite $VnetName was not found."
+    }
 }
 
 
@@ -463,7 +479,6 @@ function New-AzureVnetLocalNetworkSite
     }
     else
     {
-        Write-Host  -Object 'does not exist - will create'
         $VNetConfigObject = Get-AzureVNetConfig
 
         if ($VNetConfigObject)
@@ -531,6 +546,22 @@ function Set-AzureVnetLocalNetworkSite
 {
 }
 
+function Remove-AzureVnetLocalNetworkSite
+{
+    [CmdletBinding()]
+    Param ([Parameter(Mandatory = $true)] [string] $LocalNetworkSiteName)
+
+    if (Get-AzureVnetLocalNetworkSite  -LocalNetworkSiteName $LocalNetworkSiteName) 
+    {
+        # remove it
+    }
+    else 
+    {
+        Write-Error -Message "The LocalNetworkSite $LocalNetworkSiteName was not found."
+    }
+}
+
+
 
 Function Get-AzureVnetDNSserver 
 {
@@ -597,39 +628,6 @@ Function Set-AzureVnetDNSserver
     }
 } 
 
-
-function Remove-AzureVnetVirtualNetworkSite
-{
-    [CmdletBinding()]
-    Param ([Parameter(Mandatory = $true)] [string] $VnetName)
-
-    if (Get-AzureVnetVirtualNetworkSite  -VnetName $VnetName) 
-    {
-        # remove it
-    }
-    else 
-    {
-        Write-Error -Message "The VirtualNetworkSite $VnetName was not found."
-    }
-}
-
-
-function Remove-AzureVnetLocalNetworkSite
-{
-    [CmdletBinding()]
-    Param ([Parameter(Mandatory = $true)] [string] $LocalNetworkSiteName)
-
-    if (Get-AzureVnetLocalNetworkSite  -LocalNetworkSiteName $LocalNetworkSiteName) 
-    {
-        # remove it
-    }
-    else 
-    {
-        Write-Error -Message "The LocalNetworkSite $LocalNetworkSiteName was not found."
-    }
-}
-
-
 Function Remove-AzureVnetDNSserver
 {
     [CmdletBinding()]
@@ -685,6 +683,57 @@ Function Remove-AzureVnetDNSserver
 
     #RemoveChild
 }
+
+Function New-AzureVnetDNSserver
+{
+    [CmdletBinding()]
+    Param ([Parameter(Mandatory = $true)]               [string] $DNSserverName,
+           [Parameter(Mandatory = $true)] [System.Net.IPAddress] $IPAddress
+    )
+
+    $VNetConfigObject = Get-AzureVNetConfig
+
+    if ($VNetConfigObject) 
+    {
+        [XML]$vnetConfig = $VNetConfigObject.XMLConfiguration 
+
+        $nsmgr = New-Object -TypeName System.Xml.XmlNamespaceManager -ArgumentList ($vnetConfig.NameTable)
+        $nsmgr.AddNamespace('myns', $vnetConfig.NetworkConfiguration.xmlns)
+
+        $xpath = '//myns:DnsServers'
+        $dnsServers = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+
+        $exists = $dnsServers.DnsServer | Where-Object  -FilterScript { $_.Name -eq $DNSname }
+        if (-NOT $exists) 
+        {
+            $DNSserver = $vnetConfig.CreateElement('DnsServer',$nsVnet)
+            $xmlAttr = $vnetConfig.CreateAttribute('name')
+            $xmlAttr.Value = $DNSname
+            [void]$DNSserver.Attributes.Append($xmlAttr)
+
+            $xmlAttr = $vnetConfig.CreateAttribute('IPAddress')
+            $xmlAttr.Value = $DNSipAddress
+            [void]$DNSserver.Attributes.Append($xmlAttr)
+            [void]$dnsServers.AppendChild($DNSserver)
+            [void]$dns.AppendChild($dnsServers)
+            [void]$vnetConfig.AppendChild($dns)
+
+            $xmlTempPath = [System.IO.Path]::GetTempPath()
+            $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
+            $vnetConfig.Save($SaveFilePath)
+
+            $null = Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
+        }
+        else
+        {
+          Write-Error -Message "The DnsServer $DNSserverName already exists."
+        }
+
+    }
+} 
+
+
+
 
 
 
