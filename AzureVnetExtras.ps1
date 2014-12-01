@@ -136,8 +136,8 @@ Function New-AzureVnetConfig
                                              [int] $VnetCIDR = '8',
                                           [string] $VnetSubnetname = 'Subnet-1',
                                              [int] $SubNetCIDR = '11',
-        [string] $DNSname,
-        [System.Net.IPAddress] $DNSipAddress = '8.8.8.8'
+                                          [string] $DNSname,
+                            [System.Net.IPAddress] $DNSipAddress = '8.8.8.8'
     )
 
     if (Get-AzureVNetConfig) 
@@ -613,6 +613,7 @@ Function Set-AzureVnetDNSserver
         $DnsServer=$dnsServers.DnsServer | Where-Object -FilterScript { $_.Name -eq $DNSserverName }
         if ($DnsServer -ne $null)
         {
+         Write-Verbose -Message "Setting '$DNSserverName' to '$IPaddress'"
          $DnsServer.IPAddress="$IPAddress"
 
          $xmlTempPath = [System.IO.Path]::GetTempPath()
@@ -649,7 +650,8 @@ Function Remove-AzureVnetDNSserver
         $DnsServer=$dnsServers.DnsServer | Where-Object -FilterScript { $_.Name -eq $DNSserverName }
         if ($DnsServer -ne $null)
         {
-           # check if it is referenced anywhere
+           Write-Verbose -Message "Checking for references to '$DNSserverName'"
+
            $xpath = '//myns:VirtualNetworkSites'
            $VirtualNetSites = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
 
@@ -662,6 +664,7 @@ Function Remove-AzureVnetDNSserver
 
            if (-NOT ($referenced) )
            {
+             Write-Verbose -Message "Removing '$DNSserverName'"
              [void]$dnsServers.RemoveChild($DnsServer)
 
              $xmlTempPath = [System.IO.Path]::GetTempPath()
@@ -691,32 +694,38 @@ Function New-AzureVnetDNSserver
            [Parameter(Mandatory = $true)] [System.Net.IPAddress] $IPAddress
     )
 
+
     $VNetConfigObject = Get-AzureVNetConfig
 
     if ($VNetConfigObject) 
     {
         [XML]$vnetConfig = $VNetConfigObject.XMLConfiguration 
 
+        $nsVnet = 'http://schemas.microsoft.com/ServiceHosting/2011/07/NetworkConfiguration'
+
         $nsmgr = New-Object -TypeName System.Xml.XmlNamespaceManager -ArgumentList ($vnetConfig.NameTable)
         $nsmgr.AddNamespace('myns', $vnetConfig.NetworkConfiguration.xmlns)
+
+        $xpath = '//myns:Dns'
+        $dns = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
 
         $xpath = '//myns:DnsServers'
         $dnsServers = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
 
-        $exists = $dnsServers.DnsServer | Where-Object  -FilterScript { $_.Name -eq $DNSname }
+        $exists = $dnsServers.DnsServer | Where-Object  -FilterScript { $_.Name -eq $DNSserverName }
         if (-NOT $exists) 
         {
+            Write-Verbose -Message "Creating DnsServer node '$DNSserverName'"
             $DNSserver = $vnetConfig.CreateElement('DnsServer',$nsVnet)
             $xmlAttr = $vnetConfig.CreateAttribute('name')
-            $xmlAttr.Value = $DNSname
+            $xmlAttr.Value = $DNSserverName
             [void]$DNSserver.Attributes.Append($xmlAttr)
 
             $xmlAttr = $vnetConfig.CreateAttribute('IPAddress')
-            $xmlAttr.Value = $DNSipAddress
+            $xmlAttr.Value = $IPAddress
             [void]$DNSserver.Attributes.Append($xmlAttr)
             [void]$dnsServers.AppendChild($DNSserver)
             [void]$dns.AppendChild($dnsServers)
-            [void]$vnetConfig.AppendChild($dns)
 
             $xmlTempPath = [System.IO.Path]::GetTempPath()
             $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
@@ -731,10 +740,6 @@ Function New-AzureVnetDNSserver
 
     }
 } 
-
-
-
-
 
 
 
