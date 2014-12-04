@@ -190,6 +190,8 @@ Function New-AzureVnetConfig
         $xmlAttr.Value = $Location
         [void]$virNetSite.Attributes.Append($xmlAttr)
 
+#TODO need to validate CIDR
+
         $addressSpace = $xmlDoc.CreateElement('AddressSpace',$nsVnet)
         $addressPrefix = $xmlDoc.CreateElement('AddressPrefix',$nsVnet)
         $addressPrefix.InnerText = "$StartingIP" + '/' + "$VnetCIDR"
@@ -202,6 +204,9 @@ Function New-AzureVnetConfig
         $xmlAttr = $xmlDoc.CreateAttribute('name')
         $xmlAttr.Value = $VnetSubnetname
         [void]$subnet.Attributes.Append($xmlAttr)
+
+#TODO need to validate CIDR
+
         $addressPrefix = $xmlDoc.CreateElement('AddressPrefix',$nsVnet)
         $addressPrefix.InnerText = "$StartingIP" + '/' + "$SubNetCIDR"
         [void]$subnet.AppendChild($addressPrefix)
@@ -213,7 +218,7 @@ Function New-AzureVnetConfig
         # create the DNS & DNServers elements
         $dns = $xmlDoc.CreateElement('Dns',$nsVnet)
         $dnsServers = $xmlDoc.CreateElement('DnsServers',$nsVnet)
-        if ($DNSname -ne $null) 
+        if ( -not [String]::IsNullOrEmpty($DNSname)) 
         {
             $DNSserver = $xmlDoc.CreateElement('DnsServer',$nsVnet)
             $xmlAttr = $xmlDoc.CreateAttribute('name')
@@ -289,8 +294,6 @@ Function New-AzureVnetVirtualNetworkSite
                             [System.Net.IPAddress] $DNSipAddress = '8.8.8.8'
     )
 
-    # need to validate VnetCIDR if IPaddress is provided
-
     $VnetSite = Get-AzureVnetVirtualNetworkSite -VnetName $VnetName 
     if ($VnetSite) 
     {
@@ -320,9 +323,11 @@ Function New-AzureVnetVirtualNetworkSite
                 $xpath = '//myns:DnsServers'
                 $dnsServers = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
 
-                if ($DNSname -ne $null) 
+                if (-not [String]::IsNullOrEmpty($DNSname))
                 {
-                    $exists = $dnsServers.DnsServer | Where-Object  -FilterScript { $_.Name -eq $DNSname }
+                    $exists = $dnsServers.DnsServer | Where-Object  -FilterScript {
+                        $_.Name -eq $DNSname 
+                    }
                     if (-NOT $exists) 
                     {
                         $DNSserver = $vnetConfig.CreateElement('DnsServer',$nsVnet)
@@ -330,11 +335,18 @@ Function New-AzureVnetVirtualNetworkSite
                         $xmlAttr.Value = $DNSname
                         [void]$DNSserver.Attributes.Append($xmlAttr)
 
-                        $xmlAttr = $vnetConfig.CreateAttribute('IPAddress')
-                        $xmlAttr.Value = $DNSipAddress
-                        [void]$DNSserver.Attributes.Append($xmlAttr)
-                        [void]$dnsServers.AppendChild($DNSserver)
-                        [void]$dns.AppendChild($dnsServers)
+                        if (-not [String]::IsNullOrEmpty($DNSipAddress)) 
+                        {
+                            $xmlAttr = $vnetConfig.CreateAttribute('IPAddress')
+                            $xmlAttr.Value = $DNSipAddress
+                            [void]$DNSserver.Attributes.Append($xmlAttr)
+                            [void]$dnsServers.AppendChild($DNSserver)
+                            [void]$dns.AppendChild($dnsServers)
+                        }
+                        else 
+                        {
+                            Write-Error -Message "IPaddress parameter required for new DnsServer '$DNSname'."
+                        }
                     }
                 }
 
@@ -350,6 +362,8 @@ Function New-AzureVnetVirtualNetworkSite
                 $xmlAttr.Value = $Location
                 [void]$VirtualNetSite.Attributes.Append($xmlAttr)
 
+#TODO need to validate CIDR
+
                 $addressSpace = $vnetConfig.CreateElement('AddressSpace',$nsVnet)
                 $addressPrefix = $vnetConfig.CreateElement('AddressPrefix',$nsVnet)
                 $addressPrefix.InnerText = "$StartingIP" + '/' + "$VnetCIDR"
@@ -361,13 +375,15 @@ Function New-AzureVnetVirtualNetworkSite
                 $xmlAttr.Value = $VnetSubnetname
                 [void]$subnet.Attributes.Append($xmlAttr)
 
+#TODO need to validate CIDR
+
                 $addressPrefix2 = $vnetConfig.CreateElement('AddressPrefix',$nsVnet)
                 $addressPrefix2.InnerText = "$StartingIP" + '/' + "$SubNetCIDR"
                 [void]$subnet.AppendChild($addressPrefix2)
 
                 [void]$subnets.AppendChild($subnet)
 
-                if ($DNSname -ne $null) 
+                if ( -not [String]::IsNullOrEmpty($DNSname))
                 {
                     $DnsServersRef = $vnetConfig.CreateElement('DnsServersRef',$nsVnet)
                     $DnsServerRef  = $vnetConfig.CreateElement('DnsServerRef',$nsVnet)
@@ -408,13 +424,193 @@ Function New-AzureVnetVirtualNetworkSite
 
 
 
-            New-AzureVnetConfig  -VnetName @params
+
+            New-AzureVnetConfig  -VnetName $params
         }
     }
 }
 
 function Set-AzureVnetVirtualNetworkSite
 {
+    [CmdletBinding()]
+    PARAM ([Parameter(Mandatory = $true)] [string] $VnetName,
+                                          [string] $Location,
+                            [System.Net.IPAddress] $StartingIP,
+                                             [int] $VnetCIDR,
+                                          [string] $VnetSubnetname,
+                            [System.Net.IPAddress] $VnetSubnetIPAddress,
+                                             [int] $SubNetCIDR,
+                                          [string] $DNSname,
+                            [System.Net.IPAddress] $DNSipAddress
+    )
+
+    $VnetSite = Get-AzureVnetVirtualNetworkSite -VnetName $VnetName 
+    if (-NOT ($VnetSite)) 
+    {
+        Write-Error  -Message "VnetVirtualNetworkSite '$VnetName' not found."
+    }
+    else
+    {
+        $VNetConfigObject = Get-AzureVNetConfig
+
+        if ($VNetConfigObject)
+        {
+            try 
+            {
+                [XML]$vnetConfig = $VNetConfigObject.XMLConfiguration
+
+                $nsVnet = 'http://schemas.microsoft.com/ServiceHosting/2011/07/NetworkConfiguration'
+
+                $nsmgr = New-Object -TypeName System.Xml.XmlNamespaceManager -ArgumentList ($vnetConfig.NameTable)
+                $nsmgr.AddNamespace('myns', $vnetConfig.NetworkConfiguration.xmlns)
+
+
+                $xpath = '//myns:VirtualNetworkSites'
+                $VirtualNetSites = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+                Write-Verbose -Message "Get XMLnode for VirtualSite $VnetName"
+                $VirtualNetSite = $VirtualNetSites.VirtualNetworkSite | Where-Object -FilterScript { $_.Name -eq $VnetName }
+
+                if ($VirtualNetSite) 
+                {
+                    # alter Vnet location?
+                    if ( -not [String]::IsNullOrEmpty($Location))
+                    {
+                        if ( Get-AzureLocation | Where-Object -FilterScript { $_.Name -eq $Location } )
+                        {
+                            Write-Verbose -Message "Setting '$VirtualNetSite' to '$Location'"
+                            $VirtualNetSite.Location = "$Location"
+                        }
+                        else 
+                        {
+                            Write-Error -Message "$Location is not a valid Azure Location."
+                        }
+                    }
+
+                    #alter Vnet AddressSpace?
+                    if ( (-not [String]::IsNullOrEmpty($StartingIP)) -AND ([String]::IsNullOrEmpty($VnetSubnetname)) )
+                    {
+                        if ([String]::IsNullOrEmpty($VnetCIDR))
+                        {
+#TODO need to validate CIDR
+                            # figure out a default CIDR for this address space.
+                            $VnetCIDR = '8'
+                        }
+                        Write-Verbose -Message "Setting '$VirtualNetSite' AddressSpace to $StartingIP/$VnetCIDR"
+                        $VirtualNetSite.AddressSpace = "$StartingIP" + '/' + "$VnetCIDR"
+                    }
+
+                    # alter subnet address/range?
+                    if ( -not [String]::IsNullOrEmpty($VnetSubnetname)) 
+                    {
+                        $subnet = $VirtualNetSite.Subnets | Where-Object -FilterScript { $_.Name -eq $VnetSubnetname }
+                        if ($subnet) 
+                        {
+                            if ($VnetSubnetIPAddress) 
+                            {
+                                if ($SubNetCIDR) 
+                                {
+#TODO need to validate CIDR
+                                    Write-Verbose -Message "Setting Subnet '$VnetSubnetname' AddressPrefix to $VnetSubnetIPAddress/$SubNetCIDR"
+                                    $subnet.AddressPrefix = "$VnetSubnetIPAddress" + '/' + "$SubNetCIDR"
+                                }
+                                else 
+                                {
+                                    Write-Error -Message 'Missing Parameter value -SubNetCIDR'
+                                }
+                            }
+                            else 
+                            {
+                                if ($StartingIP) 
+                                {
+                                    if ($SubNetCIDR) 
+                                    {
+#TODO need to validate CIDR
+                                        Write-Verbose -Message "Setting Subnet '$VnetSubnetname' AddressPrefix to $StartingIP/$SubNetCIDR"
+                                        $subnet.AddressPrefix = "$StartingIP" + '/' + "$SubNetCIDR"
+                                    }
+                                }
+                                else 
+                                {
+                                    Write-Error -Message 'Missing Parameter value -SubNetCIDR'
+                                }
+                            }
+                        }
+                        else # subnet doesn't exist
+                        {
+                            if ($SubNetCIDR) 
+                            {
+                                # creating a new subnet
+                                Write-Verbose -Message "Creating new Subnet '$VnetSubnetname'"
+                                $subnet  = $vnetConfig.CreateElement('Subnet',$nsVnet)
+                                $xmlAttr = $vnetConfig.CreateAttribute('name')
+                                $xmlAttr.Value = $VnetSubnetname
+                                [void]$subnet.Attributes.Append($xmlAttr)
+ 
+#TODO need to validate CIDR
+                                Write-Verbose -Message 'with AddressPrefix '$StartingIP/$SubNetCIDR"
+                                $addressPrefix2 = $vnetConfig.CreateElement('AddressPrefix',$nsVnet)
+                                $addressPrefix2.InnerText = "$StartingIP" + '/' + "$SubNetCIDR"
+                                Write-Verbose -Message "with AddressPrefix "$StartingIP/$SubNetCIDR"
+
+                                [void]$subnet.AppendChild($addressPrefix2)
+                                [void]$VirtualNetSite.Subnets.AppendChild($subnet)
+                            }
+                            else 
+                            {
+                                Write-Error  -Message 'Missing parameter value -SubNetCIDR'
+                            }
+                        }
+                    }
+
+                    #alter/add/remove a DNS reference?
+                    if ( -not [String]::IsNullOrEmpty($DNSname)) 
+                    {
+                        $xpath = '//myns:DnsServers'
+                        $dnsServers = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+
+                        #DNSserver exists so may create a DnsServerRef in the subnet 
+                        if ($dnsServers.DnsServer | Where-Object  -FilterScript {$_.Name -eq $DNSname })
+                        {
+                          # is there already a DnsServerRef to this DNSserver?
+                          if (-NOT ($VirtualNetSite.DnsServersRef.DnsServerRef | Where-Object  -FilterScript {$_.Name -eq $DNSname }))
+                          {
+                             Write-Verbose -Message "Adding DnsServerRef for $DNSname to $VnetName."
+                             $DnsServerRef  = $vnetConfig.CreateElement('DnsServerRef',$nsVnet)
+                             $xmlAttr       = $vnetConfig.CreateAttribute('name')
+                             $xmlAttr.Value = $DNSname
+                             [void]$DnsServerRef.Attributes.Append($xmlAttr)
+                             [void]$VirtualNetSite.DnsServersRef.AppendChild($DnsServerRef)
+                          }
+                        }
+                        else 
+                        {
+                          Write-Error -Message "DNS server $DNSname does not exist."
+                        }
+                    }
+
+                    [void]$VirtualNetSites.AppendChild($VirtualNetSite)
+
+                    $xmlTempPath = [System.IO.Path]::GetTempPath()
+                    $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
+                    $vnetConfig.Save($SaveFilePath)
+
+                    $null = Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
+                }
+                else 
+                {
+                    Write-Error -Message "Evil happened while acting upon $VirtualNetSite."
+                }
+            }
+            catch 
+            {
+                Write-Error  -Message 'Evil things occurred during execution...'
+            }
+        }
+        else 
+        {
+            Write-Error -Message "Failed to retrieve object from 'Get-AzureVNetConfig'."
+        }
+    }
 }
 
 function Remove-AzureVnetVirtualNetworkSite
@@ -470,7 +666,6 @@ function New-AzureVnetLocalNetworkSite
                             [System.Net.IPAddress] $VPNGatewayAddress
     )
 
-    # need to validate VnetCIDR if IPaddress is provided
 
     $LocalNetworkSite = Get-AzureVnetLocalNetworkSite -LocalNetworkSiteName $LocalNetworkSiteName 
     if ($LocalNetworkSite) 
@@ -510,6 +705,8 @@ function New-AzureVnetLocalNetworkSite
                 $xmlAttr.Value = $LocalNetworkSiteName
                 [void]$LocalNetworkSite.Attributes.Append($xmlAttr)
 
+#TODO need to validate CIDR
+
                 Write-Verbose -Message 'create AddressSpace node'
                 $addressSpace = $vnetConfig.CreateElement('AddressSpace',$nsVnet)
                 $addressPrefix = $vnetConfig.CreateElement('AddressPrefix',$nsVnet)
@@ -518,7 +715,7 @@ function New-AzureVnetLocalNetworkSite
                 [void]$LocalNetworkSite.AppendChild($addressSpace)
 
                 Write-Verbose -Message 'test for VPNGatewayAddress'
-                if ($VPNGatewayAddress -ne $null) 
+                if ( -not [String]::IsNullOrEmpty($VPNGatewayAddress))
                 {
                     Write-Verbose -Message 'create VPNGatewayAddress node'
                     $GatewayAddr = $vnetConfig.CreateElement('VPNGatewayAddress',$nsVnet)
@@ -544,6 +741,7 @@ function New-AzureVnetLocalNetworkSite
 
 function Set-AzureVnetLocalNetworkSite 
 {
+
 }
 
 function Remove-AzureVnetLocalNetworkSite
@@ -610,21 +808,21 @@ Function Set-AzureVnetDNSserver
         $xpath = '//myns:DnsServers'
         $dnsServers = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
 
-        $DnsServer=$dnsServers.DnsServer | Where-Object -FilterScript { $_.Name -eq $DNSserverName }
-        if ($DnsServer -ne $null)
+        $DNSserver = $dnsServers.DnsServer | Where-Object -FilterScript { $_.Name -eq $DNSserverName }
+        if ( -not [String]::IsNullOrEmpty($DNSserver))
         {
-         Write-Verbose -Message "Setting '$DNSserverName' to '$IPaddress'"
-         $DnsServer.IPAddress="$IPAddress"
+            Write-Verbose -Message "Setting '$DNSserverName' to '$IPAddress'"
+            $DNSserver.IPAddress = "$IPAddress"
 
-         $xmlTempPath = [System.IO.Path]::GetTempPath()
-         $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
-         $vnetConfig.Save($SaveFilePath)
+            $xmlTempPath = [System.IO.Path]::GetTempPath()
+            $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
+            $vnetConfig.Save($SaveFilePath)
 
-         $null = Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
+            $null = Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
         }
         else
         {
-          Write-Error -Message "The DnsServer $DNSserverName was not found."
+            Write-Error -Message "The DnsServer $DNSserverName was not found."
         }
     }
 } 
@@ -647,40 +845,42 @@ Function Remove-AzureVnetDNSserver
         $xpath = '//myns:DnsServers'
         $dnsServers = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
 
-        $DnsServer=$dnsServers.DnsServer | Where-Object -FilterScript { $_.Name -eq $DNSserverName }
-        if ($DnsServer -ne $null)
+        $DNSserver = $dnsServers.DnsServer | Where-Object -FilterScript { $_.Name -eq $DNSserverName }
+        if ( -not [String]::IsNullOrEmpty($DNSserver))
         {
-           Write-Verbose -Message "Checking for references to '$DNSserverName'"
+            Write-Verbose -Message "Checking for references to '$DNSserverName'"
 
-           $xpath = '//myns:VirtualNetworkSites'
-           $VirtualNetSites = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+            $xpath = '//myns:VirtualNetworkSites'
+            $VirtualNetSites = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
 
-           foreach ($Vnet in $VirtualNetSites.VirtualNetworkSite) {
-             $referenced=$Vnet.dnsserversref.dnsserverref | Where-Object {$_.name -eq $DNSserverName}
-             if ($referenced -ne $null) {
-                break
-             }
-           }
+            foreach ($Vnet in $VirtualNetSites.VirtualNetworkSite) 
+            {
+                $referenced = $Vnet.dnsserversref.dnsserverref | Where-Object  -FilterScript { $_.name -eq $DNSserverName }
+                if ($referenced -ne $null) 
+                {
+                    break
+                }
+            }
 
-           if (-NOT ($referenced) )
-           {
-             Write-Verbose -Message "Removing '$DNSserverName'"
-             [void]$dnsServers.RemoveChild($DnsServer)
+            if (-NOT ($referenced) )
+            {
+                Write-Verbose -Message "Removing '$DNSserverName'"
+                [void]$dnsServers.RemoveChild($DNSserver)
 
-             $xmlTempPath = [System.IO.Path]::GetTempPath()
-             $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
-             $vnetConfig.Save($SaveFilePath)
+                $xmlTempPath = [System.IO.Path]::GetTempPath()
+                $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
+                $vnetConfig.Save($SaveFilePath)
 
-             $null = Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
-           }
-           else
-           {
-             Write-Error "DNS server '$DNSserverName' is referenced by virtual network '$($Vnet.name)' and cannot be removed"
-           }
+                $null = Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
+            }
+            else
+            {
+                Write-Error  -Message "DNS server '$DNSserverName' is referenced by virtual network '$($Vnet.name)' and cannot be removed"
+            }
         }
         else
         {
-          Write-Error -Message "The DnsServer $DNSserverName was not found."
+            Write-Error -Message "The DnsServer $DNSserverName was not found."
         }
     }
 
@@ -735,9 +935,8 @@ Function New-AzureVnetDNSserver
         }
         else
         {
-          Write-Error -Message "The DnsServer $DNSserverName already exists."
+            Write-Error -Message "The DnsServer $DNSserverName already exists."
         }
-
     }
 } 
 
