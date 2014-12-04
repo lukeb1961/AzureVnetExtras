@@ -505,9 +505,9 @@ function Set-AzureVnetVirtualNetworkSite
                         $subnet = $VirtualNetSite.Subnets | Where-Object -FilterScript { $_.Name -eq $VnetSubnetname }
                         if ($subnet) 
                         {
-                            if ($VnetSubnetIPAddress) 
+                            if (-NOT [String]::IsNullOrEmpty($VnetSubnetIPAddress))
                             {
-                                if ($SubNetCIDR) 
+                                if (-NOT [String]::IsNullOrEmpty($SubNetCIDR))
                                 {
 #TODO need to validate CIDR
                                     Write-Verbose -Message "Setting Subnet '$VnetSubnetname' AddressPrefix to $VnetSubnetIPAddress/$SubNetCIDR"
@@ -520,9 +520,9 @@ function Set-AzureVnetVirtualNetworkSite
                             }
                             else 
                             {
-                                if ($StartingIP) 
+                                if (-NOT [String]::IsNullOrEmpty($StartingIP))
                                 {
-                                    if ($SubNetCIDR) 
+                                    if (-NOT [String]::IsNullOrEmpty($SubNetCIDR)) 
                                     {
 #TODO need to validate CIDR
                                         Write-Verbose -Message "Setting Subnet '$VnetSubnetname' AddressPrefix to $StartingIP/$SubNetCIDR"
@@ -537,7 +537,7 @@ function Set-AzureVnetVirtualNetworkSite
                         }
                         else # subnet doesn't exist
                         {
-                            if ($SubNetCIDR) 
+                            if (-NOT [String]::IsNullOrEmpty($SubNetCIDR))
                             {
                                 # creating a new subnet
                                 Write-Verbose -Message "Creating new Subnet '$VnetSubnetname'"
