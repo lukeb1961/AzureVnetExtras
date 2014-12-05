@@ -432,6 +432,7 @@ Function New-AzureVnetVirtualNetworkSite
 
 function Set-AzureVnetVirtualNetworkSite
 {
+    # will need a couple of parameter sets!
     [CmdletBinding()]
     PARAM ([Parameter(Mandatory = $true)] [string] $VnetName,
                                           [string] $Location,
@@ -751,7 +752,50 @@ function Remove-AzureVnetLocalNetworkSite
 
     if (Get-AzureVnetLocalNetworkSite  -LocalNetworkSiteName $LocalNetworkSiteName) 
     {
-        # remove it
+
+        $VNetConfigObject = Get-AzureVNetConfig
+
+        if ($VNetConfigObject)
+        {
+            try 
+            {
+                [XML]$vnetConfig = $VNetConfigObject.XMLConfiguration
+
+                $nsmgr = New-Object -TypeName System.Xml.XmlNamespaceManager -ArgumentList ($vnetConfig.NameTable)
+                $nsmgr.AddNamespace('myns', $vnetConfig.NetworkConfiguration.xmlns)
+
+                $xpath = '//myns:ConnectionsToLocalNetwork'
+                $ConnectionsToLocalNetwork = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+
+                $referenced=$ConnectionsToLocalNetwork.LocalNetworkSiteRef | Where-Object -FilterScript {$_.Name -eq $LocalNetworkSiteName}
+                if (-NOT ($referenced))
+                {
+                  Write-Verbose -Message "Removing $LocalNetworkSiteName"
+                  $xpath = '//myns:LocalNetworkSites'
+                  $LocalNetworkSites = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+                  $LocalNetworkSite = $LocalNetworkSites.LocalNetworkSite | Where-Object -FilterScript { $_.Name -eq $LocalNetworkSiteName }
+                  [void]$LocalNetworkSites.RemoveChild($LocalNetworkSite)
+
+                  $xmlTempPath = [System.IO.Path]::GetTempPath()
+                  $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
+                  $vnetConfig.Save($SaveFilePath)
+
+                  $null = Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
+                }
+                else 
+                {
+                 Write-Error "Unable to remove $LocalNetworkSiteName as it is being referenced."
+                }
+            }
+            catch 
+            {
+              Write-Error -Message "EVIL occurred..."
+            }
+       }
+       else
+       {
+         Write-Error -Message "no VnetConfigObject was returned by Get-AzureVNetConfig."
+       }
     }
     else 
     {
@@ -846,7 +890,7 @@ Function Remove-AzureVnetDNSserver
         $dnsServers = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
 
         $DNSserver = $dnsServers.DnsServer | Where-Object -FilterScript { $_.Name -eq $DNSserverName }
-        if ( -not [String]::IsNullOrEmpty($DNSserver))
+        if ($DNSserver)
         {
             Write-Verbose -Message "Checking for references to '$DNSserverName'"
 
