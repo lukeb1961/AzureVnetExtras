@@ -599,7 +599,7 @@ function Set-AzureVnetVirtualNetworkSite
                 }
                 else 
                 {
-                    Write-Error -Message "Evil happened while acting upon $VirtualNetSite."
+                    Write-Error -Message "Unable to retrieve VirtualNetworkSites XML node $VnetName."
                 }
             }
             catch 
@@ -614,19 +614,56 @@ function Set-AzureVnetVirtualNetworkSite
     }
 }
 
-function Remove-AzureVnetVirtualNetworkSite
+Function Remove-AzureVnetVirtualNetworkSite
 {
     [CmdletBinding()]
     Param ([Parameter(Mandatory = $true)] [string] $VnetName)
 
-    if (Get-AzureVnetVirtualNetworkSite  -VnetName $VnetName) 
+
+    $VnetSite = Get-AzureVnetVirtualNetworkSite -VnetName $VnetName 
+    if (-NOT ($VnetSite)) 
     {
-        # remove it
+        Write-Error  -Message "VnetVirtualNetworkSite '$VnetName' was not found."
     }
-    else 
+    else
     {
-        Write-Error -Message "The VirtualNetworkSite $VnetName was not found."
-    }
+        $VNetConfigObject = Get-AzureVNetConfig
+
+        if ($VNetConfigObject)
+        {
+            try 
+            {
+                [XML]$vnetConfig = $VNetConfigObject.XMLConfiguration
+
+                $nsVnet = 'http://schemas.microsoft.com/ServiceHosting/2011/07/NetworkConfiguration'
+
+                $nsmgr = New-Object -TypeName System.Xml.XmlNamespaceManager -ArgumentList ($vnetConfig.NameTable)
+                $nsmgr.AddNamespace('myns', $vnetConfig.NetworkConfiguration.xmlns)
+
+                $xpath = '//myns:VirtualNetworkSites'
+                $VirtualNetSites = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+                Write-Verbose -Message "Get XMLnode for VirtualSite $VnetName"
+                $VirtualNetSite = $VirtualNetSites.VirtualNetworkSite | Where-Object -FilterScript { $_.Name -eq $VnetName }
+
+                if ($VirtualNetSite) 
+                {
+                   Write-Verbose -Message "Removing '$VnetName'"
+                  [void]$VirtualNetSites.RemoveChild($VirtualNetSite)
+
+                  $xmlTempPath = [System.IO.Path]::GetTempPath()
+                  $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
+                  $vnetConfig.Save($SaveFilePath)
+
+                  $null = Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
+                }
+                else 
+                {
+                  Write-Error -Message "Unable to retrieve VirtualNetworkSites XMLnode $VnetName."
+                }
+            }
+            catch {}
+        }
+     }
 }
 
 
@@ -928,7 +965,6 @@ Function Remove-AzureVnetDNSserver
         }
     }
 
-    #RemoveChild
 }
 
 Function New-AzureVnetDNSserver
