@@ -291,7 +291,10 @@ Function New-AzureVnetVirtualNetworkSite
                                           [string] $VnetSubnetname = 'Subnet-1',
                                              [int] $SubNetCIDR = '11',
                                           [string] $DNSname,
-                            [System.Net.IPAddress] $DNSipAddress = '8.8.8.8'
+                            [System.Net.IPAddress] $DNSipAddress = '8.8.8.8',
+                                          [switch] $ConfigureSiteToSiteVPN,
+                                          [switch] $UseExpressRoute,
+                                          [switch] $ConfigurePointToSiteVPN
     )
 
     $VnetSite = Get-AzureVnetVirtualNetworkSite -VnetName $VnetName 
