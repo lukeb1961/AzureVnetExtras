@@ -149,6 +149,7 @@ Function New-AzureVnetConfig
         $nsVnet = 'http://schemas.microsoft.com/ServiceHosting/2011/07/NetworkConfiguration'
 
         # create a new base xml document
+        Write-Verbose -Message 'creating xmlDoc'
         $xmlDoc = New-Object -TypeName System.Xml.XmlDocument
 
         # create & insert xml declaration
@@ -157,27 +158,30 @@ Function New-AzureVnetConfig
         [void]$xmlDoc.InsertBefore($xmlDec, $root)
 
         # create the Networkconfiguration root element & attributes
-        $netConfig = $xmlDoc.CreateElement('NetworkConfiguration')
+        Write-Verbose -Message 'creating NetworkConfiguration'
+        $NetworkConfiguration = $xmlDoc.CreateElement('NetworkConfiguration')
 
         $attr = $xmlDoc.CreateAttribute('xmlns:xsd')
         $attr.Value = 'http://www.w3.org/2001/XMLSchema'
-        [void]$netConfig.Attributes.Append($attr)
+        [void]$NetworkConfiguration.Attributes.Append($attr)
 
         $attr = $xmlDoc.CreateAttribute('xmlns:xsi')
         $attr.Value = 'http://www.w3.org/2001/XMLSchema-instance'
-        [void]$netConfig.Attributes.Append($attr)
+        [void]$NetworkConfiguration.Attributes.Append($attr)
 
         $attr = $xmlDoc.CreateAttribute('xmlns')
         $attr.Value = 'http://schemas.microsoft.com/ServiceHosting/2011/07/NetworkConfiguration'
-        [void]$netConfig.Attributes.Append($attr)
+        [void]$NetworkConfiguration.Attributes.Append($attr)
 
+        Write-Verbose -Message 'creating VirtualNetworkConfiguration'
         # create the VirtualNetworkconfiguration root element & attributes
-        $vnetConfig = $xmlDoc.CreateElement('VirtualNetworkConfiguration',$nsVnet)
+        $virNetworkConfiguration = $xmlDoc.CreateElement('VirtualNetworkConfiguration',$nsVnet)
 
         # create the LocalNetworkSites, VirtualNetworkSites root elements
         $locNetSites = $xmlDoc.CreateElement('LocalNetworkSites',$nsVnet)
         $virNetSites = $xmlDoc.CreateElement('VirtualNetworkSites',$nsVnet)
 
+        Write-Verbose -Message 'creating VirtualNetworkSite'
         # create the virtual network site element
         $virNetSite = $xmlDoc.CreateElement('VirtualNetworkSite',$nsVnet)
 
@@ -215,6 +219,7 @@ Function New-AzureVnetConfig
 
         [void]$virNetSites.AppendChild($virNetSite)
 
+        Write-Verbose -Message 'creating DnsServers'
         # create the DNS & DNServers elements
         $dns = $xmlDoc.CreateElement('Dns',$nsVnet)
         $dnsServers = $xmlDoc.CreateElement('DnsServers',$nsVnet)
@@ -233,18 +238,14 @@ Function New-AzureVnetConfig
         }
         [void]$dns.AppendChild($dnsServers)
 
-        [void]$vnetConfig.AppendChild($dns)
-        [void]$vnetConfig.AppendChild($locNetSites)
-        [void]$vnetConfig.AppendChild($virNetSites)
-        [void]$netConfig.AppendChild($vnetConfig)
-        [void]$xmlDoc.AppendChild($netConfig)
+        [void]$virNetworkConfiguration.AppendChild($dns)
+        [void]$virNetworkConfiguration.AppendChild($locNetSites)
+        [void]$virNetworkConfiguration.AppendChild($virNetSites)
+        [void]$NetworkConfiguration.AppendChild($virNetworkConfiguration)
+        [void]$xmlDoc.AppendChild($NetworkConfiguration)
 
-        $xmlTempPath = [System.IO.Path]::GetTempPath()
-        $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
-
-        $xmlDoc.Save($SaveFilePath)
-
-        Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
+        Write-Verbose -Message 'Publishing VnetConfig into Azure...'
+        Save-VnetConfig -vnetConfig $xmlDoc
     }
 
     Get-AzureVNetConfig
@@ -412,11 +413,7 @@ Function New-AzureVnetVirtualNetworkSite
                 [void]$VirtualNetSite.AppendChild($DnsServersRef)
                 [void]$VirtualNetSites.AppendChild($VirtualNetSite)
 
-                $xmlTempPath = [System.IO.Path]::GetTempPath()
-                $SaveFilePath = Join-Path -Path $xmlTempPath -ChildPath 'VNetConfig.netcfg'
-                $vnetConfig.Save($SaveFilePath)
-
-                $null = Set-AzureVNetConfig -ConfigurationPath $SaveFilePath
+                Save-VnetConfig -vnetConfig $vnetConfig
             }
             catch 
             {
@@ -436,9 +433,6 @@ Function New-AzureVnetVirtualNetworkSite
                 DNSipAddress   = $DNSipAddress
             }
 
-
-
-
             New-AzureVnetConfig  -VnetName $params
         }
     }
@@ -457,7 +451,8 @@ function Set-AzureVnetVirtualNetworkSite
                             [System.Net.IPAddress] $VnetSubnetIPAddress,
                                              [int] $SubNetCIDR,
                                           [string] $DNSname,
-                            [System.Net.IPAddress] $DNSipAddress
+                            [System.Net.IPAddress] $DNSipAddress,
+                                          [switch] $Publish
     )
 
     $VnetSite = Get-AzureVnetVirtualNetworkSite -VnetName $VnetName 
@@ -468,7 +463,6 @@ function Set-AzureVnetVirtualNetworkSite
     else
     {
         $piped=@($input).Count
-        $input.Reset()
 
         if (-NOT ($vnetConfig)) {
           $VNetConfigObject = Get-AzureVNetConfig
@@ -588,34 +582,12 @@ function Set-AzureVnetVirtualNetworkSite
                #alter/add/remove a DNS reference?
                if ( -not [String]::IsNullOrEmpty($DNSname)) 
                {
-                  Add-DnsServerRef -VnetName $VnetName $DNSname
-
-                   $xpath = '//myns:DnsServers'
-                   $dnsServers = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
-
-                   #DNSserver exists so may create a DnsServerRef in the subnet 
-                   if ($dnsServers.DnsServer | Where-Object  -FilterScript {$_.Name -eq $DNSname })
-                   {
-                     # is there already a DnsServerRef to this DNSserver?
-                     if (-NOT ($VirtualNetSite.DnsServersRef.DnsServerRef | Where-Object  -FilterScript {$_.Name -eq $DNSname }))
-                     {
-                        Write-Verbose -Message "Adding DnsServerRef for $DNSname to $VnetName."
-                        $DnsServerRef  = $vnetConfig.CreateElement('DnsServerRef',$nsVnet)
-                        $xmlAttr       = $vnetConfig.CreateAttribute('name')
-                        $xmlAttr.Value = $DNSname
-                        [void]$DnsServerRef.Attributes.Append($xmlAttr)
-                        [void]$VirtualNetSite.DnsServersRef.AppendChild($DnsServerRef)
-                     }
-                   }
-                   else 
-                   {
-                     Write-Error -Message "DNS server $DNSname does not exist."
-                   }
+                  $vnetConfig = $vnetConfig | Add-DnsServerRef -VnetName $VnetName -DNSname $DNSname 
                }
 
                [void]$VirtualNetSites.AppendChild($VirtualNetSite)
 
-               if (-NOT ($piped)) 
+               if ($Publish) 
                {               
                  Save-VnetConfig -vnetConfig $vnetConfig
                }
@@ -640,7 +612,8 @@ Function Remove-AzureVnetVirtualNetworkSite
 {
     [CmdletBinding()]
     Param ([Parameter(ValueFromPipeline=$True,ValueFromPipelineByPropertyName=$True)] [XML]$vnetConfig=$null,
-           [Parameter(Mandatory = $true)] [string] $VnetName)
+           [Parameter(Mandatory = $true)] [string] $VnetName,
+           [switch]$Publish)
 
 
     $VnetSite = Get-AzureVnetVirtualNetworkSite -VnetName $VnetName 
@@ -650,8 +623,6 @@ Function Remove-AzureVnetVirtualNetworkSite
     }
     else
     {
-        $piped=@($input).Count
-        $input.Reset()
 
         if (-NOT ($vnetConfig)) {
           $VNetConfigObject = Get-AzureVNetConfig
@@ -680,7 +651,7 @@ Function Remove-AzureVnetVirtualNetworkSite
               Write-Verbose -Message "Removing '$VnetName'"
               [void]$VirtualNetSites.RemoveChild($VirtualNetSite)
 
-              if (-NOT ($piped)) 
+              if ($Publish) 
               {               
                  Save-VnetConfig -vnetConfig $vnetConfig
               }
@@ -726,6 +697,7 @@ Function Get-AzureVnetLocalNetworkSite
     }
 }
 
+
 function New-AzureVnetLocalNetworkSite 
 {
     [CmdletBinding()]
@@ -733,7 +705,8 @@ function New-AzureVnetLocalNetworkSite
            [Parameter(Mandatory = $true)] [string] $LocalNetworkSiteName,
                             [System.Net.IPAddress] $StartingIP,
                                              [int] $VnetCIDR,
-                            [System.Net.IPAddress] $VPNGatewayAddress
+                            [System.Net.IPAddress] $VPNGatewayAddress,
+                                          [switch] $Publish
     )
 
 
@@ -744,9 +717,7 @@ function New-AzureVnetLocalNetworkSite
     }
     else
     {
-      $piped=@($input).Count
-      $input.Reset()
-
+ 
       if (-NOT ($vnetConfig)) {
         $VNetConfigObject = Get-AzureVNetConfig
 
@@ -799,7 +770,7 @@ function New-AzureVnetLocalNetworkSite
 
           [void]$LocalNetworkSites.AppendChild($LocalNetworkSite)
 
-          if (-NOT ($piped)) 
+          if ($Publish) 
           {               
               Save-VnetConfig -vnetConfig $vnetConfig
           }
@@ -820,13 +791,13 @@ function Remove-AzureVnetLocalNetworkSite
 {
     [CmdletBinding()]
     Param ([Parameter(ValueFromPipeline=$True,ValueFromPipelineByPropertyName=$True)] [XML]$vnetConfig=$null,
-           [Parameter(Mandatory = $true)] [string] $LocalNetworkSiteName)
+           [Parameter(Mandatory = $true)] [string] $LocalNetworkSiteName,
+           [switch] $Publish
+          )
 
     if (Get-AzureVnetLocalNetworkSite  -LocalNetworkSiteName $LocalNetworkSiteName) 
     {
 
-      $piped=@($input).Count
-      $input.Reset()
 
       if (-NOT ($vnetConfig)) {
          $VNetConfigObject = Get-AzureVNetConfig
@@ -854,7 +825,7 @@ function Remove-AzureVnetLocalNetworkSite
             $LocalNetworkSite = $LocalNetworkSites.LocalNetworkSite | Where-Object -FilterScript { $_.Name -eq $LocalNetworkSiteName }
             [void]$LocalNetworkSites.RemoveChild($LocalNetworkSite)
 
-            if (-NOT ($piped)) 
+            if ($Publish) 
             {
               Save-VnetConfig -vnetConfig $vnetConfig
             }
@@ -914,11 +885,10 @@ Function Set-AzureVnetDNSserver
     [CmdletBinding()]
     Param ([Parameter(ValueFromPipeline=$True,ValueFromPipelineByPropertyName=$True)] [XML]$vnetConfig=$null,
            [Parameter(Mandatory = $true)]               [string] $DNSserverName,
-           [Parameter(Mandatory = $true)] [System.Net.IPAddress] $IPAddress
+           [Parameter(Mandatory = $true)] [System.Net.IPAddress] $IPAddress,
+           [switch] $Publish
     )
 
-    $piped=@($input).Count
-    $input.Reset()
 
     if (-NOT ($vnetConfig)) {
       $VNetConfigObject = Get-AzureVNetConfig
@@ -944,7 +914,7 @@ Function Set-AzureVnetDNSserver
             Write-Verbose -Message "Setting '$DNSserverName' to '$IPAddress'"
             $DNSserver.IPAddress = "$IPAddress"
 
-            if (-NOT ($piped)) 
+            if ($Publish) 
             {
               Save-VnetConfig -vnetConfig $vnetConfig
             }
@@ -964,11 +934,10 @@ Function Remove-AzureVnetDNSserver
 {
     [CmdletBinding()]
     Param ([Parameter(ValueFromPipeline=$True,ValueFromPipelineByPropertyName=$True)] [XML]$vnetConfig=$null,
-           [Parameter(Mandatory = $true)] [string] $DNSserverName
+           [Parameter(Mandatory = $true)] [string] $DNSserverName,
+           [switch] $Publish
     )
 
-    $piped=@($input).Count
-    $input.Reset()
 
     if (-NOT ($vnetConfig)) {
       $VNetConfigObject = Get-AzureVNetConfig
@@ -1010,7 +979,7 @@ Function Remove-AzureVnetDNSserver
                 Write-Verbose -Message "Removing '$DNSserverName'"
                 [void]$dnsServers.RemoveChild($DNSserver)
 
-                if (-NOT ($piped)) 
+                if ($Publish) 
                 {
                   Save-VnetConfig -vnetConfig $vnetConfig
                 }
@@ -1038,11 +1007,10 @@ Function New-AzureVnetDNSserver
     [CmdletBinding()]
     Param ([Parameter(ValueFromPipeline=$True,ValueFromPipelineByPropertyName=$True)] [XML]$vnetConfig=$null,
            [Parameter(Mandatory = $true)]               [string] $DNSserverName,
-           [Parameter(Mandatory = $true)] [System.Net.IPAddress] $IPAddress
+           [Parameter(Mandatory = $true)] [System.Net.IPAddress] $IPAddress,
+           [switch] $Publish
     )
 
-    $piped=@($input).Count
-    $input.Reset()
 
     if (-NOT ($vnetConfig)) {
       $VNetConfigObject = Get-AzureVNetConfig
@@ -1081,7 +1049,7 @@ Function New-AzureVnetDNSserver
             [void]$dnsServers.AppendChild($DNSserver)
             [void]$dns.AppendChild($dnsServers)
 
-            if (-NOT ($piped)) 
+            if ($Publish) 
             {
               Save-VnetConfig -vnetConfig $vnetConfig
             }
@@ -1098,13 +1066,55 @@ Function New-AzureVnetDNSserver
 } 
 
 
-function Add-DnsServerRef 
+Function Add-DnsServerRef 
 {
     [CmdletBinding()]
     PARAM ([Parameter(Mandatory = $true, ValueFromPipeline=$True,ValueFromPipelineByPropertyName=$True)] [XML]$vnetConfig,
            [Parameter(Mandatory = $true)] [string] $VnetName,
            [Parameter(Mandatory = $true)] [string] $DNSname
           )
+
+
+   $nsVnet = 'http://schemas.microsoft.com/ServiceHosting/2011/07/NetworkConfiguration'
+
+   $nsmgr = New-Object -TypeName System.Xml.XmlNamespaceManager -ArgumentList ($vnetConfig.NameTable)
+   $nsmgr.AddNamespace('myns', $vnetConfig.NetworkConfiguration.xmlns)
+
+
+   $xpath = '//myns:VirtualNetworkSites'
+   $VirtualNetSites = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+   Write-Verbose -Message "Get XMLnode for VirtualSite $VnetName"
+   $VirtualNetSite = $VirtualNetSites.VirtualNetworkSite | Where-Object -FilterScript { $_.Name -eq $VnetName }
+
+   if ($VirtualNetSite) {
+
+     $xpath = '//myns:DnsServers'
+     $dnsServers = $vnetConfig.SelectSingleNode($xpath,$nsmgr)
+
+     # does this DNS server exist?
+     if ($dnsServers.DnsServer | Where-Object  -FilterScript {$_.Name -eq $DNSname })
+     {
+       # is there already a DnsServerRef to this DNSserver?
+       if (-NOT ($VirtualNetSite.DnsServersRef.DnsServerRef | Where-Object  -FilterScript {$_.Name -eq $DNSname }))
+       {
+         Write-Verbose -Message "Adding DnsServerRef for $DNSname to $VnetName."
+         $DnsServerRef  = $vnetConfig.CreateElement('DnsServerRef',$nsVnet)
+         $xmlAttr       = $vnetConfig.CreateAttribute('name')
+         $xmlAttr.Value = $DNSname
+         [void]$DnsServerRef.Attributes.Append($xmlAttr)
+         [void]$VirtualNetSite.DnsServersRef.AppendChild($DnsServerRef)
+       }
+       Write-Output $vnetConfig
+     }
+     else 
+     {
+       Write-Error -Message "DNS server $DNSname does not exist."
+     }
+  }
+  else 
+  {
+    Write-Error -Message "VirtualSite $Vnetname does not exist."
+  }
 }
 
 
