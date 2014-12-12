@@ -296,12 +296,12 @@ Function New-AzureVnetVirtualNetworkSite
                             [System.Net.IPAddress] $DNSipAddress = '8.8.8.8',
 #
 #
-                                          [switch] $ConfigureSiteToSiteVPN,
-                                          [dynamic] $LocalNetworkName,
-                                          [dynamic] $GatewayName,
-                                          [dynamic] $VPNdeviceIPaddress,
-                                          [dynamic] $LocalStartingIP,
-                                          [dynamic] $LocalCIDR,
+                                          [switch] $ConfigureSiteToSiteVPN,  #(New-AzureVnetLocalNetworkSite)
+                                          [dynamic]  $LocalNetworkName,
+                                          [dynamic]  $GatewayName,
+                                          [dynamic]  $VPNdeviceIPaddress,
+                                          [dynamic]  $LocalStartingIP,
+                                          [dynamic]  $LocalCIDR,
                                           [switch] $UseExpressRoute,
 
                                           [switch] $ConfigurePointToSiteVPN
@@ -340,9 +340,7 @@ Function New-AzureVnetVirtualNetworkSite
 
                 if (-not [String]::IsNullOrEmpty($DNSname))
                 {
-                    $exists = $dnsServers.DnsServer | Where-Object  -FilterScript {
-                        $_.Name -eq $DNSname 
-                    }
+                    $exists = $dnsServers.DnsServer | Where-Object  -FilterScript { $_.Name -eq $DNSname }
                     if (-NOT $exists) 
                     {
                         $DNSserver = $vnetConfig.CreateElement('DnsServer',$nsVnet)
@@ -1036,5 +1034,13 @@ Function New-AzureVnetDNSserver
 } 
 
 
+function New-xxVnetGateway 
+{
+    [CmdletBinding()]
+    Param ( [Parameter(ValueFromPipeline=$True,ValueFromPipelineByPropertyName=$True)] [XML]$vnetConfig,
+            [string] $VPNGatewayAddress,
+            [system.Net.IPAddress] $IPAddress
+    )
+}
 
 Check-AzurePowerShellModule  -minVer '0.8.11' 
