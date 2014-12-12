@@ -44,21 +44,21 @@ Set-StrictMode -Version 4
 Function Check-AzurePowerShellModule 
 {
     [CmdletBinding()]
-    PARAM([Parameter(Mandatory)] $minVer)
+    PARAM([Parameter(Mandatory)] [alias("MinVer")] $minimumVersion)
 
     Write-Host  -Object 'Checking if the Azure PowerShell module is installed...'
 
-    $minVersion = $minVer -Split '\.'
-    $minMajor = $minVersion[0]
-    $minMinor = $minVersion[1]
-    $minBuild = $minVersion[2]
+    $minimumVersionArr = $minimumVersion -Split '\.'
+    $minMajor = $minimumVersionArr[0]
+    $minMinor = $minimumVersionArr[1]
+    $minBuild = $minimumVersionArr[2]
 
     if (Get-Module -ListAvailable  -Name 'Azure') 
     {
         Write-Host  -Object 'Loading Azure module...'
         Import-Module  -Name 'Azure' -Force
         $ModVer = (Get-Module -Name 'Azure').Version
-        Write-Verbose  -Message "Version installed: $ModVer  Minimum required: $minVer"
+        Write-Verbose  -Message "Version installed: $ModVer  Minimum required: $minimumVersion"
         $minimumBuild = (($ModVer.Major -gt $minMajor) -OR ($ModVer.Minor -gt $minMinor) -OR (($ModVer.Minor -eq $minMinor) -AND ($ModVer.Build -ge $minBuild)))
         if ($minimumBuild) 
         {
@@ -286,15 +286,27 @@ Function New-AzureVnetVirtualNetworkSite
     [CmdletBinding()]
     PARAM ([Parameter(Mandatory = $true)] [string] $VnetName,
                                           [string] $Location = (Select-AzureLocation),
+
                             [System.Net.IPAddress] $StartingIP = '10.0.0.0',
                                              [int] $VnetCIDR = '8',
                                           [string] $VnetSubnetname = 'Subnet-1',
                                              [int] $SubNetCIDR = '11',
+
                                           [string] $DNSname,
                             [System.Net.IPAddress] $DNSipAddress = '8.8.8.8',
+#
+#
                                           [switch] $ConfigureSiteToSiteVPN,
+                                          [dynamic] $LocalNetworkName,
+                                          [dynamic] $GatewayName,
+                                          [dynamic] $VPNdeviceIPaddress,
+                                          [dynamic] $LocalStartingIP,
+                                          [dynamic] $LocalCIDR,
                                           [switch] $UseExpressRoute,
+
                                           [switch] $ConfigurePointToSiteVPN
+#
+#
     )
 
     $VnetSite = Get-AzureVnetVirtualNetworkSite -VnetName $VnetName 
