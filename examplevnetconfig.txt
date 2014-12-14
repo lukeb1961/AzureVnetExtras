@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<NetworkConfiguration xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://schemas.microsoft.com/ServiceHosting/2011/07/NetworkConf
+iguration">
+  <VirtualNetworkConfiguration>
+    <Dns />
+    <LocalNetworkSites>
+      <LocalNetworkSite name="BelleeTech-External-130629793244984632">
+        <AddressSpace>
+          <AddressPrefix>192.168.0.00/24</AddressPrefix>
+        </AddressSpace>
+        <VPNGatewayAddress>191.239.68.0</VPNGatewayAddress>
+      </LocalNetworkSite>
+      <LocalNetworkSite name="BelleeTech-Internal-130629792808199783">
+        <AddressSpace>
+          <AddressPrefix>10.0.0.00/24</AddressPrefix>
+        </AddressSpace>
+        <VPNGatewayAddress>191.239.66.205</VPNGatewayAddress>
+      </LocalNetworkSite>
+    </LocalNetworkSites>
+    <VirtualNetworkSites>
+      <VirtualNetworkSite name="BelleeTech-External-130629793244984632" AffinityGroup="MYLAB-Affinity-Group">
+        <AddressSpace>
+          <AddressPrefix>192.168.0.00/25</AddressPrefix>
+        </AddressSpace>
+        <Subnets>
+          <Subnet name="S01">
+            <AddressPrefix>192.168.0.00/28</AddressPrefix>
+          </Subnet>
+          <Subnet name="GatewaySubnet">
+            <AddressPrefix>192.168.0.032/29</AddressPrefix>
+          </Subnet>
+        </Subnets>
+        <Gateway>
+          <ConnectionsToLocalNetwork>
+            <LocalNetworkSiteRef name="BelleeTech-Internal-130629792808199783">
+              <Connection type="IPsec" />
+            </LocalNetworkSiteRef>
+          </ConnectionsToLocalNetwork>
+        </Gateway>
+      </VirtualNetworkSite>
+      <VirtualNetworkSite name="BelleeTech-Internal-130629792808199783" AffinityGroup="MYLAB-Affinity-Group">
+        <AddressSpace>
+          <AddressPrefix>10.0.0.00/25</AddressPrefix>
+        </AddressSpace>
+        <Subnets>
+          <Subnet name="S01">
+            <AddressPrefix>10.0.0.00/28</AddressPrefix>
+          </Subnet>
+          <Subnet name="GatewaySubnet">
+            <AddressPrefix>10.0.0.032/29</AddressPrefix>
+          </Subnet>
+        </Subnets>
+        <Gateway>
+          <ConnectionsToLocalNetwork>
+            <LocalNetworkSiteRef name="BelleeTech-External-130629793244984632">
+              <Connection type="IPsec" />
+            </LocalNetworkSiteRef>
+          </ConnectionsToLocalNetwork>
+        </Gateway>
+      </VirtualNetworkSite>
+    </VirtualNetworkSites>
+  </VirtualNetworkConfiguration>
+</NetworkConfiguration>
